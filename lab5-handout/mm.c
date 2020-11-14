@@ -43,6 +43,8 @@
 #define DSIZE       16      /* doubleword size (bytes) */
 #define CHUNKSIZE  (1<<12)  /* initial heap size (bytes) */
 #define OVERHEAD    16      /* overhead of header and footer (bytes) */
+#define PREV_PTR    
+#define NEXT_PTR
 
 /* NOTE: feel free to replace these macros with helper functions and/or
  * add new ones that will be useful for you. Just make sure you think
@@ -72,10 +74,21 @@
 #define NEXT_BLKP(bp)  (PADD(bp, GET_SIZE(HDRP(bp))))
 #define PREV_BLKP(bp)  (PSUB(bp, GET_SIZE((PSUB(bp, DSIZE)))))
 
+/* Next free block ptr and prev free block ptr*/
+#define NEXT_FREE(bp) (GET(bp))
+#define PREV_FREE(bp) (GET(PADD(bp, WSIZE)))
+
+/* Setting next free block to the head */
+#define SET_NEXT_FREE(bp, val) (PUT(bp, val))
+#define SET_PREV_FREE(bp, val) (PUT(bp+WSIZE, val))
+
 /* Global variables */
 
 // Pointer to first block
 static void *heap_start = NULL;
+
+//Pointer to the first "free" block
+static void *head_free = NULL;
 
 /* Function prototypes for internal helper routines */
 
@@ -242,18 +255,56 @@ static void *coalesce(void *bp) {
  */
 static void *find_fit(size_t asize) {
     /* search from the start of the free list to the end */
-    for (char *cur_block = heap_start; GET_SIZE(HDRP(cur_block)) > 0; cur_block = NEXT_BLKP(cur_block)) {
+    for (char *cur_block = heap_start; cur_block != NULL; cur_block = NEXT_FREE(cur_block)) {
         if (!GET_ALLOC(HDRP(cur_block)) && (asize <= GET_SIZE(HDRP(cur_block))))
             return cur_block;
     }
-
     return NULL;  /* no fit found */
+}
+
+/*
+ * add_efl - setting the next pointer of the current block to the curr_head of the free list
+ * sett the prev_ptr of curr_head of the free list to the curr_block
+*/
+static void *add_efl(void *bp){
+    //set next free pointer of the bp to the curr_head
+    SET_NEXT_FREE(bp, head_free);
+
+    //set the prev_free pointer of the head to the current block
+    SET_PREV_FREE(head_free, bp); 
+
+    // update head_free to show new head as the bp
+    head_free = bp;
+   
+} 
+
+/*
+ * remove_efl - resetting pointers 
+ * given a bp,
+ * we set the prev_free of next block after the curr block to prev_free of curr block
+ * we set the next_free of the prev block to the next block after curr block
+*/
+static void *remove_efl(void*bp){
+    //set head_free to the next block after the head
+    // set the prev_free of the head to NULL
+    if (bp == head_free){
+        head_free = NEXT_FREE(bp);
+        SET_PREV_FREE(head_free, NULL);
+    }
+    elif (NEXT_FREE(bp) == NULL){
+        SET_NEXT_FREE(PREV_FREE(bp), NULL);
+    }
+    else{
+        SET_PREV_FREE(NEXT_FREE(bp)+WSIZE, PREV_FREE(bp));
+        SET_NEXT_FREE(PREV_FREE(bp), NEXT_FREE(bp));
+    }
 }
 
 /*
  * extend_heap - Extend heap with free block and return its block pointer
  */
 static void *extend_heap(size_t words) {
+    // create the block and then add to explicit free list 
     char *bp;
     size_t size;
 
