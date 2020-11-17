@@ -109,7 +109,6 @@ static size_t max(size_t x, size_t y);
  * <Are there any preconditions or postconditions?>
  */
 int mm_init(void) {
-    printf("MM INIT");
     /* create the initial empty heap */
     if ((heap_start = mem_sbrk(4 * WSIZE)) == NULL)
         return -1;
@@ -120,8 +119,6 @@ int mm_init(void) {
     PUT(PADD(heap_start, WSIZE + DSIZE), PACK(0, 1));   /* epilogue header */
 
     heap_start = PADD(heap_start, DSIZE); /* start the heap at the (size 0) payload of the prologue block */
-    head_free = NULL;
-
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
         return -1;
@@ -136,7 +133,6 @@ int mm_init(void) {
  * <Are there any preconditions or postconditions?>
  */
 void *mm_malloc(size_t size) {
-    printf("MM MALLOC");
     size_t asize;      /* adjusted block size */
     size_t extendsize; /* amount to extend heap if no fit */
     char *bp;
@@ -174,23 +170,22 @@ void *mm_malloc(size_t size) {
  * sett the prev_ptr of curr_head of the free list to the curr_block
 */
 static void add_efl(void *bp){
-    printf("ADD EFL");
     // if head is null
     if (head_free == NULL){
         head_free = bp;
-        SET_NEXT_FREE(head_free, 0);
-        SET_PREV_FREE(head_free, 0);
-        return;
+        SET_NEXT_FREE(head_free, NULL);
+        SET_PREV_FREE(head_free, NULL);
     }
+    else{
+        //set next free pointer of the bp to the curr_head
+        SET_NEXT_FREE(bp, head_free);
 
-    //set next free pointer of the bp to the curr_head
-    SET_NEXT_FREE(bp, head_free);
+        //set the prev_free pointer of the head to the current block
+        SET_PREV_FREE(head_free, bp); 
 
-    //set the prev_free pointer of the head to the current block
-    SET_PREV_FREE(head_free, bp); 
-
-    // update head_free to show new head as the bp
-    head_free = bp;
+        // update head_free to show new head as the bp
+        head_free = bp;
+    }
 } 
 
 /*
@@ -200,17 +195,21 @@ static void add_efl(void *bp){
  * we set the next_free of the prev block to the next block after curr block
 */
 static void remove_efl(void*bp){
-    printf("REMOVE EFL");
     //set head_free to the next block after the head
     // set the prev_free of the head ad to NULL
     assert(head_free!=NULL); // throws an error crash 
 
     if (bp == head_free){
-        head_free = GET_NEXT_FREE(bp);
-        SET_PREV_FREE(head_free, 0);
+        if (GET_NEXT_FREE(bp)==NULL){
+            head_free = NULL;
+        }
+        else{
+            head_free = GET_NEXT_FREE(bp);
+            SET_PREV_FREE(head_free, NULL);
+        }
     }
     else if (GET_NEXT_FREE(bp) == NULL){
-        SET_NEXT_FREE(GET_PREV_FREE(bp), 0);
+        SET_NEXT_FREE(GET_PREV_FREE(bp), NULL);
     }
     else{
         SET_PREV_FREE(GET_NEXT_FREE(bp), GET(GET_PREV_FREE(bp)));
@@ -225,7 +224,6 @@ static void remove_efl(void*bp){
  * <Are there any preconditions or postconditions?>
  */
 void mm_free(void *bp) {
-    printf("MM FREE");
 	PUT(HDRP(bp), PACK(GET_SIZE(HDRP(bp)), 0));
 	PUT(FTRP(bp), PACK(GET_SIZE(FTRP(bp)), 0));
 	coalesce(bp);
@@ -244,7 +242,6 @@ void mm_free(void *bp) {
  */
 static void place(void *bp, size_t asize) {
     // What to do if the block is only 16 bytes bigger? it wouldn't make sense to make a block with only the header and footer.
-    printf("PLACE");
 	remove_efl(bp);
     size_t block_size = GET_SIZE(HDRP(bp));
     
@@ -276,7 +273,6 @@ static void place(void *bp, size_t asize) {
  * <Are there any preconditions or postconditions?>
  */
 static void *coalesce(void *bp) {
-    printf("COALESECE");
     void *next = NEXT_BLKP(bp);
     void *prev = PREV_BLKP(bp);
 
@@ -287,8 +283,6 @@ static void *coalesce(void *bp) {
         remove_efl(next);
         unsigned int size = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(next));
         PUT(FTRP(next), PACK(size, 0));
-        // PUT(FTRP(bp), 0);
-        // PUT(HDRP(next), 0);
         PUT(HDRP(bp), PACK(size, 0));   
     }
 
@@ -297,8 +291,6 @@ static void *coalesce(void *bp) {
     if (GET_ALLOC(HDRP(prev)) == 0){
         unsigned int size = GET_SIZE(HDRP(prev)) + GET_SIZE(HDRP(bp));
         PUT(FTRP(bp), PACK(size, 0));
-        // PUT(FTRP(prev), 0);
-        // PUT(HDRP(bp), 0);
         PUT(HDRP(prev), PACK(size, 0));
         return prev;
     }
@@ -312,7 +304,6 @@ static void *coalesce(void *bp) {
  * find_fit - Find a fit for a block with asize bytes
  */
 static void *find_fit(size_t asize) {
-    printf("FIND FIT");
     /* search from the start of the free list to the end */
     assert(head_free!=NULL);
     for (char *cur_block = head_free; cur_block != NULL; cur_block = GET_NEXT_FREE(cur_block)) {
@@ -327,7 +318,6 @@ static void *find_fit(size_t asize) {
  * extend_heap - Extend heap with free block and return its block pointer
  */
 static void *extend_heap(size_t words) {
-    printf("EXTEND HEAP");
     // create the block and then add to explicit free list 
     char *bp;
     size_t size;
