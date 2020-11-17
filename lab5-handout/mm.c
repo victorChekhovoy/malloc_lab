@@ -75,12 +75,12 @@
 #define PREV_BLKP(bp)  (PSUB(bp, GET_SIZE((PSUB(bp, DSIZE)))))
 
 /* Next free block ptr and prev free block ptr*/
-#define NEXT_FREE(bp) ((char *)(bp))
-#define PREV_FREE(bp) ((char *)(PADD(bp, WSIZE)))
+#define GET_NEXT_FREE(bp) ((void *)(*(size_t *)(bp)))
+#define GET_PREV_FREE(bp) ((void *)(*(size_t *)(PADD(bp, WSIZE))))
 
 /* Setting next free block to the head */
-#define SET_NEXT_FREE(bp, val) (PUT(bp, val))
-#define SET_PREV_FREE(bp, val) (PUT(PADD(bp, WSIZE), val))
+#define SET_NEXT_FREE(bp, val) (PUT(bp, (size_t)val))
+#define SET_PREV_FREE(bp, val) (PUT(PADD(bp, WSIZE), (size_t)val))
 
 /* Global variables */
 
@@ -109,6 +109,7 @@ static size_t max(size_t x, size_t y);
  * <Are there any preconditions or postconditions?>
  */
 int mm_init(void) {
+    printf("MM INIT");
     /* create the initial empty heap */
     if ((heap_start = mem_sbrk(4 * WSIZE)) == NULL)
         return -1;
@@ -119,6 +120,7 @@ int mm_init(void) {
     PUT(PADD(heap_start, WSIZE + DSIZE), PACK(0, 1));   /* epilogue header */
 
     heap_start = PADD(heap_start, DSIZE); /* start the heap at the (size 0) payload of the prologue block */
+    head_free = NULL;
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
@@ -134,6 +136,7 @@ int mm_init(void) {
  * <Are there any preconditions or postconditions?>
  */
 void *mm_malloc(size_t size) {
+    printf("MM MALLOC");
     size_t asize;      /* adjusted block size */
     size_t extendsize; /* amount to extend heap if no fit */
     char *bp;
@@ -171,18 +174,20 @@ void *mm_malloc(size_t size) {
  * sett the prev_ptr of curr_head of the free list to the curr_block
 */
 static void add_efl(void *bp){
+    printf("ADD EFL");
     // if head is null
     if (head_free == NULL){
         head_free = bp;
         SET_NEXT_FREE(head_free, 0);
         SET_PREV_FREE(head_free, 0);
+        return;
     }
 
     //set next free pointer of the bp to the curr_head
-    SET_NEXT_FREE(bp, GET(head_free));
+    SET_NEXT_FREE(bp, head_free);
 
     //set the prev_free pointer of the head to the current block
-    SET_PREV_FREE(head_free, GET(bp)); 
+    SET_PREV_FREE(head_free, bp); 
 
     // update head_free to show new head as the bp
     head_free = bp;
@@ -195,21 +200,21 @@ static void add_efl(void *bp){
  * we set the next_free of the prev block to the next block after curr block
 */
 static void remove_efl(void*bp){
+    printf("REMOVE EFL");
     //set head_free to the next block after the head
-    // set the prev_free of the head to NULL
-    if (head_free == NULL){
-        return;
-    }
-    else if (bp == head_free){
-        head_free = NEXT_FREE(bp);
+    // set the prev_free of the head ad to NULL
+    assert(head_free!=NULL); // throws an error crash 
+
+    if (bp == head_free){
+        head_free = GET_NEXT_FREE(bp);
         SET_PREV_FREE(head_free, 0);
     }
-    else if (NEXT_FREE(bp) == 0){
-        SET_NEXT_FREE(PREV_FREE(bp), 0);
+    else if (GET_NEXT_FREE(bp) == NULL){
+        SET_NEXT_FREE(GET_PREV_FREE(bp), 0);
     }
     else{
-        SET_PREV_FREE(NEXT_FREE(bp)+WSIZE, GET(PREV_FREE(bp)));
-        SET_NEXT_FREE(PREV_FREE(bp), GET(NEXT_FREE(bp)));
+        SET_PREV_FREE(GET_NEXT_FREE(bp), GET(GET_PREV_FREE(bp)));
+        SET_NEXT_FREE(GET_PREV_FREE(bp), GET(GET_NEXT_FREE(bp)));
     }
 }
 
@@ -220,9 +225,9 @@ static void remove_efl(void*bp){
  * <Are there any preconditions or postconditions?>
  */
 void mm_free(void *bp) {
+    printf("MM FREE");
 	PUT(HDRP(bp), PACK(GET_SIZE(HDRP(bp)), 0));
 	PUT(FTRP(bp), PACK(GET_SIZE(FTRP(bp)), 0));
-    add_efl(bp);
 	coalesce(bp);
     /* set the allocated bit of the header and footer to 0; optionally - set the payload to 0;  coalesce with the prev block */
 }
@@ -239,27 +244,22 @@ void mm_free(void *bp) {
  */
 static void place(void *bp, size_t asize) {
     // What to do if the block is only 16 bytes bigger? it wouldn't make sense to make a block with only the header and footer.
-    size_t rounded_size;
-	if (asize % 16 == 0){
-		rounded_size = asize;
-	}
-	else{
-		rounded_size = asize + (16 - (asize % 16));
-	}
-	size_t block_size = GET_SIZE(HDRP(bp));
-	if (block_size > rounded_size){
-		PUT(HDRP(bp), PACK(rounded_size, 1));
-		PUT(FTRP(bp), PACK(rounded_size, 1));
-		PUT(HDRP(NEXT_BLKP(bp)), PACK(block_size - rounded_size, 0));
-		PUT(FTRP(NEXT_BLKP(bp)), PACK(block_size - rounded_size, 0));
-        remove_efl(bp);
+    printf("PLACE");
+	remove_efl(bp);
+    size_t block_size = GET_SIZE(HDRP(bp));
+    
+	if (block_size >= asize+OVERHEAD+DSIZE){
+		PUT(HDRP(bp), PACK(asize, 1));
+		PUT(FTRP(bp), PACK(asize, 1));
+		PUT(HDRP(NEXT_BLKP(bp)), PACK(block_size - asize, 0));
+		PUT(FTRP(NEXT_BLKP(bp)), PACK(block_size - asize, 0));
         add_efl(NEXT_BLKP(bp));
 		return;
 	}
 	
 	PUT(HDRP(bp), PACK(block_size, 1));
 	PUT(FTRP(bp), PACK(block_size, 1));
-    remove_efl(bp);
+    
 	return;
 
     // REPLACE THIS
@@ -276,34 +276,33 @@ static void place(void *bp, size_t asize) {
  * <Are there any preconditions or postconditions?>
  */
 static void *coalesce(void *bp) {
-	if (GET_ALLOC(HDRP(bp)) == 0){
-		void *next = NEXT_BLKP(bp);
-		void *prev = PREV_BLKP(bp);
-        //if current block not alloc, next bloc not alloc, merge those two 
-            // remove the next of bp
+    printf("COALESECE");
+    void *next = NEXT_BLKP(bp);
+    void *prev = PREV_BLKP(bp);
 
-		if (GET_ALLOC(HDRP(next)) == 0){
-			unsigned int size = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(next));
-			PUT(FTRP(next), PACK(size, 0));
-			PUT(FTRP(bp), 0);
-			PUT(HDRP(next), 0);
-			PUT(HDRP(bp), PACK(size, 0));
-            remove_efl(next);
-		}
+    //if current block not alloc, next bloc not alloc, merge those two 
+        // remove the next of bp
 
-        //if current block not alloc, prev bloc not alloc, merge those two 
-            // remove the bp
-		if (GET_ALLOC(HDRP(prev)) == 0){
-			unsigned int size = GET_SIZE(HDRP(prev)) + GET_SIZE(HDRP(bp));
-			PUT(FTRP(bp), PACK(size, 0));
-			PUT(FTRP(prev), 0);
-			PUT(HDRP(bp), 0);
-			PUT(HDRP(prev), PACK(size, 0));
-            remove_efl(bp);
-			return prev;
-		}
-	}
-	
+    if (GET_ALLOC(HDRP(next)) == 0){
+        remove_efl(next);
+        unsigned int size = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(next));
+        PUT(FTRP(next), PACK(size, 0));
+        // PUT(FTRP(bp), 0);
+        // PUT(HDRP(next), 0);
+        PUT(HDRP(bp), PACK(size, 0));   
+    }
+
+    //if current block not alloc, prev bloc not alloc, merge those two 
+        // remove the bp
+    if (GET_ALLOC(HDRP(prev)) == 0){
+        unsigned int size = GET_SIZE(HDRP(prev)) + GET_SIZE(HDRP(bp));
+        PUT(FTRP(bp), PACK(size, 0));
+        // PUT(FTRP(prev), 0);
+        // PUT(HDRP(bp), 0);
+        PUT(HDRP(prev), PACK(size, 0));
+        return prev;
+    }
+	add_efl(bp);
 	return bp;
 /* if current or previous block is allocated, do nothing; if both are free, erase the footer of previous block and header of current block; go to the header of previous block and set its size to size of current block + size of previous block; go to the footer of current block and update the size; call coalesce with a pointer to the previous block as an argument  */	
 }
@@ -313,8 +312,10 @@ static void *coalesce(void *bp) {
  * find_fit - Find a fit for a block with asize bytes
  */
 static void *find_fit(size_t asize) {
+    printf("FIND FIT");
     /* search from the start of the free list to the end */
-    for (char *cur_block = heap_start; cur_block != NULL; cur_block = NEXT_FREE(cur_block)) {
+    assert(head_free!=NULL);
+    for (char *cur_block = head_free; cur_block != NULL; cur_block = GET_NEXT_FREE(cur_block)) {
         if (!GET_ALLOC(HDRP(cur_block)) && (asize <= GET_SIZE(HDRP(cur_block))))
             return cur_block;
     }
@@ -326,6 +327,7 @@ static void *find_fit(size_t asize) {
  * extend_heap - Extend heap with free block and return its block pointer
  */
 static void *extend_heap(size_t words) {
+    printf("EXTEND HEAP");
     // create the block and then add to explicit free list 
     char *bp;
     size_t size;
@@ -343,7 +345,6 @@ static void *extend_heap(size_t words) {
     PUT(FTRP(bp), PACK(size, 0));         /* free block footer */
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* new epilogue header */
 
-    add_efl(bp);
     /* Coalesce if the previous block was free */
     return coalesce(bp);
 }
