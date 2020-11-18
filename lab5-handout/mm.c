@@ -101,6 +101,7 @@ static void *find_fit(size_t asize);
 static void *coalesce(void *bp);
 static void print_efl();
 static void place(void *bp, size_t asize);
+static bool in_efl(void *bp);
 static size_t max(size_t x, size_t y);
 
 /*
@@ -114,6 +115,8 @@ int mm_init(void) {
     if ((heap_start = mem_sbrk(4 * WSIZE)) == NULL)
         return -1;
 
+    head_free = NULL;
+
     PUT(heap_start, 0);                        /* alignment padding */
     PUT(PADD(heap_start, WSIZE), PACK(OVERHEAD, 1));  /* prologue header */
     PUT(PADD(heap_start, DSIZE), PACK(OVERHEAD, 1));  /* prologue footer */
@@ -123,7 +126,7 @@ int mm_init(void) {
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
         return -1;
-
+    check_heap(__LINE__);
     return 0;
 }
 
@@ -160,8 +163,8 @@ void *mm_malloc(size_t size) {
     extendsize = max(asize, CHUNKSIZE);
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
         return NULL;
-    print_efl();
     place(bp, asize);
+    check_heap(__LINE__);
     return bp;
 }
 
@@ -171,6 +174,8 @@ void *mm_malloc(size_t size) {
  * sett the prev_ptr of curr_head of the free list to the curr_block
 */
 static void add_efl(void *bp){
+
+    check_heap(__LINE__);
     // if head is null
     if (head_free == NULL){
         head_free = bp;
@@ -183,11 +188,12 @@ static void add_efl(void *bp){
 
         //set the prev_free pointer of the head to the current block
         SET_PREV_FREE(head_free, bp); 
-
+	SET_PREV_FREE(bp, NULL);
         // update head_free to show new head as the bp
         head_free = bp;
     }
-    print_efl();
+
+    check_heap(__LINE__);
 } 
 
 /*
@@ -201,6 +207,7 @@ static void remove_efl(void*bp){
     // set the prev_free of the head ad to NULL
     assert(head_free!=NULL); // throws an error crash 
 
+    check_heap(__LINE__);
     if (bp == head_free){
         if (GET_NEXT_FREE(bp)==NULL){
             head_free = NULL;
@@ -221,8 +228,17 @@ static void remove_efl(void*bp){
         SET_NEXT_FREE(GET_PREV_FREE(bp), GET(GET_NEXT_FREE(bp)));
 	SET_PREV_FREE(bp, NULL);
     }
-    print_efl();
+    check_heap(__LINE__);
 }
+
+static bool in_efl(void *bp){
+	void *p;
+	for (p = head_free; p != NULL; p = GET_NEXT_FREE(p)){
+		if (p == bp) return true;
+	}
+	return false;
+}
+
 
 /*
  * mm_free -- <What does this function do?>
@@ -231,9 +247,13 @@ static void remove_efl(void*bp){
  * <Are there any preconditions or postconditions?>
  */
 void mm_free(void *bp) {
+    check_heap(__LINE__);
+    print_efl();
 	PUT(HDRP(bp), PACK(GET_SIZE(HDRP(bp)), 0));
 	PUT(FTRP(bp), PACK(GET_SIZE(FTRP(bp)), 0));
 	coalesce(bp);
+	print_efl();
+    check_heap(__LINE__);
     /* set the allocated bit of the header and footer to 0; optionally - set the payload to 0;  coalesce with the prev block */
 }
 
@@ -248,6 +268,7 @@ void mm_free(void *bp) {
  * <Are there any preconditions or postconditions?>
  */
 static void place(void *bp, size_t asize) {
+    check_heap(__LINE__);
     // What to do if the block is only 16 bytes bigger? it wouldn't make sense to make a block with only the header and footer.
 	remove_efl(bp);
     size_t block_size = GET_SIZE(HDRP(bp));
@@ -264,6 +285,7 @@ static void place(void *bp, size_t asize) {
 	PUT(HDRP(bp), PACK(block_size, 1));
 	PUT(FTRP(bp), PACK(block_size, 1));
     
+    check_heap(__LINE__);
 	return;
 
     // REPLACE THIS
@@ -299,9 +321,13 @@ static void *coalesce(void *bp) {
         size_t size = GET_SIZE(HDRP(prev)) + GET_SIZE(HDRP(bp));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(prev), PACK(size, 0));
+    check_heap(__LINE__);
+    print_efl();
         return prev;
     }
     if (GET_ALLOC(HDRP(bp)) == 0) add_efl(bp);
+    check_heap(__LINE__);
+    print_efl();
 	return bp;
 /* if current or previous block is allocated, do nothing; if both are free, erase the footer of previous block and header of current block; go to the header of previous block and set its size to size of current block + size of previous block; go to the footer of current block and update the size; call coalesce with a pointer to the previous block as an argument  */	
 }
@@ -312,11 +338,13 @@ static void *coalesce(void *bp) {
  */
 static void *find_fit(size_t asize) {
     /* search from the start of the free list to the end */
+    check_heap(__LINE__);
     assert(head_free!=NULL);
     for (char *cur_block = head_free; cur_block != NULL; cur_block = GET_NEXT_FREE(cur_block)) {
         if (!GET_ALLOC(HDRP(cur_block)) && (asize <= GET_SIZE(HDRP(cur_block))))
             return cur_block;
     }
+    check_heap(__LINE__);
     return NULL;  /* no fit found */
 }
 
@@ -329,6 +357,7 @@ static void *extend_heap(size_t words) {
     char *bp;
     size_t size;
 
+    check_heap(__LINE__);
     /* Allocate an even number of words to maintain alignment */
     size = words * WSIZE;
     if (words % 2 == 1)
@@ -343,6 +372,7 @@ static void *extend_heap(size_t words) {
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* new epilogue header */
 
     /* Coalesce if the previous block was free */
+    check_heap(__LINE__);
     return coalesce(bp);
 }
 
@@ -356,7 +386,7 @@ static bool check_heap(int line) {
     char *bp;
 
     if ((GET_SIZE(HDRP(heap_start)) != DSIZE) || !GET_ALLOC(HDRP(heap_start))) {
-        printf("(check_heap at line %d) Error: bad prologue header\n", line);
+        printf("(check_heap at line %d) Error: bad prologue header\n\n", line);
         return false;
     }
 
@@ -367,8 +397,16 @@ static bool check_heap(int line) {
     }
 
     if ((GET_SIZE(HDRP(bp)) != 0) || !(GET_ALLOC(HDRP(bp)))) {
-        printf("(check_heap at line %d) Error: bad epilogue header\n", line);
+        printf("(check_heap at line %d) Error: bad epilogue header\n\n", line);
         return false;
+    }
+    if (head_free != NULL){
+    	for (bp = head_free; bp != NULL; bp = GET_NEXT_FREE(bp)){
+	    	if (GET_ALLOC(HDRP(bp))){
+		    	printf("(check heap at line %d) Error: allocated block in explicit free list\n\n", line);
+		    	return false;
+	    	}
+	}
     }
 
     return true;
@@ -385,6 +423,14 @@ static bool check_block(int line, void *bp) {
     if (GET(HDRP(bp)) != GET(FTRP(bp))) {
         printf("(check_heap at line %d) Error: header does not match footer\n", line);
         return false;
+    }
+    if (!GET_ALLOC(HDRP(bp)) && !in_efl(bp)){
+	    printf("(check_heap at line %d) Error: free block not in explicit free list\n", line);
+	    return false;
+    }
+    if (!GET_ALLOC(HDRP(bp)) && (!GET_ALLOC(NEXT_BLKP(bp)) || !GET_ALLOC(PREV_BLKP(bp)))){
+	    printf("(check_heap at line %d) Error: block %lu not fully coalesced", line, (size_t) bp);
+	    return false;
     }
     return true;
 }
