@@ -229,6 +229,7 @@ static void remove_efl(void*bp){
 	SET_PREV_FREE(bp, NULL);
     }
     check_heap(__LINE__);
+<<<<<<< HEAD
 }
 
 static bool in_efl(void *bp){
@@ -239,6 +240,18 @@ static bool in_efl(void *bp){
 	return false;
 }
 
+=======
+}
+
+static bool in_efl(void *bp){
+	void *p;
+	for (p = head_free; p != NULL; p = GET_NEXT_FREE(p)){
+		if (p == bp) return true;
+	}
+	return false;
+}
+
+>>>>>>> 47932f7500b727391ff164023bceb46622f0857b
 
 /*
  * mm_free -- <What does this function do?>
@@ -284,6 +297,10 @@ static void place(void *bp, size_t asize) {
 	
 	PUT(HDRP(bp), PACK(block_size, 1));
 	PUT(FTRP(bp), PACK(block_size, 1));
+<<<<<<< HEAD
+=======
+    
+>>>>>>> 47932f7500b727391ff164023bceb46622f0857b
     check_heap(__LINE__);
 	return;
 
@@ -347,6 +364,7 @@ static void *coalesce(void *bp) {
     }
 
     //if current block not alloc, prev bloc not alloc, merge those two 
+<<<<<<< HEAD
     // remove the bp
     else if (!prev_alloc && next_alloc){
         remove_efl(prev);
@@ -366,6 +384,21 @@ static void *coalesce(void *bp) {
 
     add_efl(bp);
     return bp;
+=======
+        // remove the bp
+    if (GET_ALLOC(HDRP(prev)) == 0){
+        size_t size = GET_SIZE(HDRP(prev)) + GET_SIZE(HDRP(bp));
+        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(prev), PACK(size, 0));
+    check_heap(__LINE__);
+    print_efl();
+        return prev;
+    }
+    if (GET_ALLOC(HDRP(bp)) == 0) add_efl(bp);
+    check_heap(__LINE__);
+    print_efl();
+	return bp;
+>>>>>>> 47932f7500b727391ff164023bceb46622f0857b
 /* if current or previous block is allocated, do nothing; if both are free, erase the footer of previous block and header of current block; go to the header of previous block and set its size to size of current block + size of previous block; go to the footer of current block and update the size; call coalesce with a pointer to the previous block as an argument  */	
 }
 
@@ -375,13 +408,21 @@ static void *coalesce(void *bp) {
  */
 static void *find_fit(size_t asize) {
     /* search from the start of the free list to the end */
+<<<<<<< HEAD
     //check_heap(__LINE__);
+=======
+    check_heap(__LINE__);
+>>>>>>> 47932f7500b727391ff164023bceb46622f0857b
     assert(head_free!=NULL);
     for (char *cur_block = head_free; cur_block != NULL; cur_block = GET_NEXT_FREE(cur_block)) {
         if (!GET_ALLOC(HDRP(cur_block)) && (asize <= GET_SIZE(HDRP(cur_block))))
             return cur_block;
     }
+<<<<<<< HEAD
     //check_heap(__LINE__);
+=======
+    check_heap(__LINE__);
+>>>>>>> 47932f7500b727391ff164023bceb46622f0857b
     return NULL;  /* no fit found */
 }
 
