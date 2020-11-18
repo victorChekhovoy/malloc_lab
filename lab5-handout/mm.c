@@ -75,8 +75,8 @@
 #define PREV_BLKP(bp)  (PSUB(bp, GET_SIZE((PSUB(bp, DSIZE)))))
 
 /* Next free block ptr and prev free block ptr*/
-#define GET_NEXT_FREE(bp) ((void *)(*(size_t *)(bp)))
-#define GET_PREV_FREE(bp) ((void *)(*(size_t *)(PADD(bp, WSIZE))))
+#define GET_NEXT_FREE(bp) ((void *)GET((bp)))
+#define GET_PREV_FREE(bp) ((void *)(GET(PADD(bp, WSIZE))))
 
 /* Setting next free block to the head */
 #define SET_NEXT_FREE(bp, val) (PUT(bp, (size_t)val))
@@ -99,6 +99,7 @@ static bool check_block(int lineno, void *bp);
 static void *extend_heap(size_t size);
 static void *find_fit(size_t asize);
 static void *coalesce(void *bp);
+static void print_efl();
 static void place(void *bp, size_t asize);
 static size_t max(size_t x, size_t y);
 
@@ -159,7 +160,7 @@ void *mm_malloc(size_t size) {
     extendsize = max(asize, CHUNKSIZE);
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
         return NULL;
-
+    print_efl();
     place(bp, asize);
     return bp;
 }
@@ -186,6 +187,7 @@ static void add_efl(void *bp){
         // update head_free to show new head as the bp
         head_free = bp;
     }
+    print_efl();
 } 
 
 /*
@@ -206,15 +208,20 @@ static void remove_efl(void*bp){
         else{
             head_free = GET_NEXT_FREE(bp);
             SET_PREV_FREE(head_free, NULL);
+	    SET_NEXT_FREE(bp, NULL);
         }
     }
     else if (GET_NEXT_FREE(bp) == NULL){
         SET_NEXT_FREE(GET_PREV_FREE(bp), NULL);
+	SET_PREV_FREE(bp, NULL);
     }
     else{
         SET_PREV_FREE(GET_NEXT_FREE(bp), GET(GET_PREV_FREE(bp)));
+	SET_NEXT_FREE(bp, NULL);
         SET_NEXT_FREE(GET_PREV_FREE(bp), GET(GET_NEXT_FREE(bp)));
+	SET_PREV_FREE(bp, NULL);
     }
+    print_efl();
 }
 
 /*
@@ -281,7 +288,7 @@ static void *coalesce(void *bp) {
 
     if (GET_ALLOC(HDRP(next)) == 0){
         remove_efl(next);
-        unsigned int size = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(next));
+        size_t size = GET_SIZE(HDRP(bp)) + GET_SIZE(HDRP(next));
         PUT(FTRP(next), PACK(size, 0));
         PUT(HDRP(bp), PACK(size, 0));   
     }
@@ -289,12 +296,12 @@ static void *coalesce(void *bp) {
     //if current block not alloc, prev bloc not alloc, merge those two 
         // remove the bp
     if (GET_ALLOC(HDRP(prev)) == 0){
-        unsigned int size = GET_SIZE(HDRP(prev)) + GET_SIZE(HDRP(bp));
+        size_t size = GET_SIZE(HDRP(prev)) + GET_SIZE(HDRP(bp));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(prev), PACK(size, 0));
         return prev;
     }
-	add_efl(bp);
+    if (GET_ALLOC(HDRP(bp)) == 0) add_efl(bp);
 	return bp;
 /* if current or previous block is allocated, do nothing; if both are free, erase the footer of previous block and header of current block; go to the header of previous block and set its size to size of current block + size of previous block; go to the footer of current block and update the size; call coalesce with a pointer to the previous block as an argument  */	
 }
@@ -316,7 +323,7 @@ static void *find_fit(size_t asize) {
 
 /*
  * extend_heap - Extend heap with free block and return its block pointer
- */
+ *;*/
 static void *extend_heap(size_t words) {
     // create the block and then add to explicit free list 
     char *bp;
@@ -397,9 +404,18 @@ static void print_heap() {
     print_block(bp);
 }
 
+static void print_efl() {
+	void *bp = head_free;
+	while (bp != NULL){
+		print_block(bp);
+		bp = GET_NEXT_FREE(bp);		
+	}
+}
 /*
  * print_block -- Prints out the current state of a block
  */
+
+
 static void print_block(void *bp) {
     size_t hsize, halloc, fsize, falloc;
 
