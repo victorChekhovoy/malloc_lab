@@ -101,7 +101,6 @@ static void *find_fit(size_t asize);
 static void *coalesce(void *bp);
 static void print_efl();
 static void place(void *bp, size_t asize);
-static bool in_efl(void *bp);
 static size_t max(size_t x, size_t y);
 
 /*
@@ -409,10 +408,6 @@ static bool check_block(int line, void *bp) {
     if (GET(HDRP(bp)) != GET(FTRP(bp))) {
         printf("(check_heap at line %d) Error: header does not match footer\n", line);
         return false;
-    }
-    if (!GET_ALLOC(HDRP(bp)) && !in_efl(bp)){
-	    printf("(check_heap at line %d) Error: free block not in explicit free list\n", line);
-	    return false;
     }
     if (!GET_ALLOC(HDRP(bp)) && (!GET_ALLOC(HDRP(NEXT_BLKP(bp))) || !GET_ALLOC(HDRP(PREV_BLKP(bp))))){
 	    printf("(check_heap at line %d) Error: block %p not fully coalesced\n", line, bp);
