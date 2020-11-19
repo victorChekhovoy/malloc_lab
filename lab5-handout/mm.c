@@ -1,9 +1,10 @@
 /*
  * CS 208 Lab 5: Malloc Lab
  *
- * <Please put your name and userid here>
+ * Viktor Chekhovoi, 2003419
+ Lita Theng,
  *
- * Simple allocator based on implicit free lists, first fit search,
+ * An allocator based on explicit free lists, first fit search,
  * and boundary tag coalescing.
  *
  * Each block has header and footer of the form:
@@ -14,7 +15,15 @@
  *      -----------------------------------
  *
  * where s are the meaningful size bits and a/f is 1
- * if and only if the block is allocated. The list has the following form:
+ * if and only if the block is allocated.
+ * if the block is free, it has the following form:
+ * ------------------------------------------
+ * hdr(s:f)| next_free pointer| prev_free pointer| ftr(s:f)
+ *
+ * next_free points to the next block in explicit free list, prev_free points to previous block in explicit free list;
+ * the next block in EFL is not necessarily next in memory.
+
+ * The list has the following form:
  *
  * begin                                                             end
  * heap                                                             heap
@@ -43,7 +52,7 @@
 #define DSIZE       16      /* doubleword size (bytes) */
 #define CHUNKSIZE  (1<<12)  /* initial heap size (bytes) */
 #define OVERHEAD    16      /* overhead of header and footer (bytes) */
-#define PREV_PTR    
+#define PREV_PTR
 #define NEXT_PTR
 
 /* NOTE: feel free to replace these macros with helper functions and/or
@@ -78,7 +87,7 @@
 #define GET_NEXT_FREE(bp) ((void *)GET((bp)))
 #define GET_PREV_FREE(bp) ((void *)(GET(PADD(bp, WSIZE))))
 
-/* Setting next free block to the head */
+/* Setting next free block and previous free block of bp*/
 #define SET_NEXT_FREE(bp, val) (PUT(bp, (size_t)val))
 #define SET_PREV_FREE(bp, val) (PUT(PADD(bp, WSIZE), (size_t)val))
 
@@ -87,7 +96,7 @@
 // Pointer to first block
 static void *heap_start = NULL;
 
-//Pointer to the first "free" block
+//Pointer to the first "free" block in EFL
 static void *head_free = NULL;
 
 /* Function prototypes for internal helper routines */
@@ -103,12 +112,10 @@ static void print_efl();
 static void place(void *bp, size_t asize);
 static size_t max(size_t x, size_t y);
 
-/*
- * mm_init -- <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
- */
+
+ /* mm_init - initalizes the heap;
+  * takes no arguments, return 0 if heap was initialized successfully, returns -1 otherwise;
+  */
 int mm_init(void) {
     /* create the initial empty heap */
     if ((heap_start = mem_sbrk(4 * WSIZE)) == NULL)
@@ -125,15 +132,13 @@ int mm_init(void) {
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
         return -1;
-    
+
     return 0;
 }
 
 /*
- * mm_malloc -- <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
+ * mm_malloc -- allocates memory in heap
+ * takes the number of bytes the user wants to alocate as an argument
  */
 void *mm_malloc(size_t size) {
     size_t asize;      /* adjusted block size */
@@ -163,75 +168,65 @@ void *mm_malloc(size_t size) {
     if ((bp = extend_heap(extendsize / WSIZE)) == NULL)
         return NULL;
     place(bp, asize);
-    
+
     return bp;
 }
 
 
 /*
- * add_efl - setting the next pointer of the current block to the curr_head of the free list
- * sett the prev_ptr of curr_head of the free list to the curr_block
+ * add_efl - adds a block the the explicit free list;
+ * takes a block pointer bp as an argument;
+ * bp must be unallocated;
 */
 static void add_efl(void *bp){
 
-    // if head is null
     if (head_free == NULL){
         head_free = bp;
         SET_NEXT_FREE(head_free, NULL);
         SET_PREV_FREE(head_free, NULL);
     }
     else{
-        //set next free pointer of the bp to the curr_head
-        SET_NEXT_FREE(bp, head_free);
-
-        //set the prev_free pointer of the head to the current block
-        SET_PREV_FREE(head_free, bp); 
-	    SET_PREV_FREE(bp, NULL);
-        // update head_free to show new head as the bp
-        head_free = bp;
+        SET_NEXT_FREE(bp, head_free); //insert from the head
+        SET_PREV_FREE(head_free, bp);
+        SET_PREV_FREE(bp, NULL);
+        head_free = bp;  // update head_free to show new head as the bp
     }
-} 
+}
 
 /*
- * remove_efl - resetting pointers 
- * given a bp,
- * we set the prev_free of next block after the curr block to prev_free of curr block
- * we set the next_free of the prev block to the next block after curr block
+ * remove_efl - removes a block from EFL;
+ * takes a block pointer bp as an argument
+ * bp must be in EFL
 */
 static void remove_efl(void*bp){
-    //set head_free to the next block after the head
-    // set the prev_free of the head ad to NULL
-    assert(head_free!=NULL); // throws an error crash 
-
     if (bp == head_free){
         head_free = GET_NEXT_FREE(bp);
-        if (head_free != NULL){
+        if (head_free != NULL){ //if there were other elements in EFL
             SET_PREV_FREE(head_free, NULL);
         }
     }
-    
-    else if (GET_NEXT_FREE(bp) == NULL){
+
+    else if (GET_NEXT_FREE(bp) == NULL){ //if bp is at the tail of EFL
         SET_NEXT_FREE(GET_PREV_FREE(bp), NULL);
     }
 
-    else{
+    else{ //if bp is in the middle of EFL
         SET_PREV_FREE(GET_NEXT_FREE(bp), GET_PREV_FREE(bp));
         SET_NEXT_FREE(GET_PREV_FREE(bp), GET_NEXT_FREE(bp));
     }
 }
 
 /*
- * mm_free -- <What does this function do?>
- * <What are the function's arguments?>
- * <What is the function's return value?>
- * <Are there any preconditions or postconditions?>
+ * mm_free -- unallocates the pointer;
+ * takes a block pointer bp as an argument;
+ * bp must be allocated and in EFL;
  */
 void mm_free(void *bp) {
 
 	PUT(HDRP(bp), PACK(GET_SIZE(HDRP(bp)), 0));
 	PUT(FTRP(bp), PACK(GET_SIZE(FTRP(bp)), 0));
 	coalesce(bp);
-	
+
 }
 
 /* The remaining routines are internal helper routines */
@@ -239,28 +234,27 @@ void mm_free(void *bp) {
 
 /*
  * place -- Place block of asize bytes at start of free block bp
- *          and <How are you handling splitting?>
- * Takes a pointer to a free block and the size of block to place inside it
- * Returns nothing
- * <Are there any preconditions or postconditions?>
+ *          and split the block if it is bigger than asize.
+ *          If a block was split, add the unallocated part to EFL.
+ * bp must be free and in EFL;
  */
 static void place(void *bp, size_t asize) {
-    
+
 	remove_efl(bp);
     size_t block_size = GET_SIZE(HDRP(bp));
-    
+
 	if (block_size >= asize+OVERHEAD+DSIZE){
 		PUT(HDRP(bp), PACK(asize, 1));
 		PUT(FTRP(bp), PACK(asize, 1));
 		PUT(HDRP(NEXT_BLKP(bp)), PACK(block_size - asize, 0));
 		PUT(FTRP(NEXT_BLKP(bp)), PACK(block_size - asize, 0));
-        add_efl(NEXT_BLKP(bp));
+    add_efl(NEXT_BLKP(bp));
 		return;
 	}
-	
+
 	PUT(HDRP(bp), PACK(block_size, 1));
 	PUT(FTRP(bp), PACK(block_size, 1));
-    
+
 	return;
 
 }
@@ -269,7 +263,7 @@ static void place(void *bp, size_t asize) {
  * coalesce -- Boundary tag coalescing.
  * Takes a pointer to a free block
  * Return ptr to coalesced block
- * <Are there any preconditions or postconditions?>
+ * bp has to be free
  */
 static void *coalesce(void *bp) {
 
@@ -314,10 +308,12 @@ static void *coalesce(void *bp) {
 
 /*
  * find_fit - Find a fit for a block with asize bytes
+ * return a pointer to a block of a correct size.
+ * if can't find such block, return NULL
  */
 static void *find_fit(size_t asize) {
     /* search from the start of the free list to the end */
-    
+
     if (head_free == NULL){
         return NULL;
     }
@@ -333,9 +329,10 @@ static void *find_fit(size_t asize) {
 
 /*
  * extend_heap - Extend heap with free block and return its block pointer
+ *               coalesce the added block with previous block if possible
  */
 static void *extend_heap(size_t words) {
-    // create the block and then add to explicit free list 
+    // create the block and then add to explicit free list
     char *bp;
     size_t size;
 
@@ -357,14 +354,14 @@ static void *extend_heap(size_t words) {
 }
 
 /*
- * check_heap -- Performs basic heap consistency checks for an implicit free list allocator
+ * check_heap -- Performs basic heap consistency checks for an explicit free list allocator
  * and prints out all blocks in the heap in memory order.
- * Checks include proper prologue and epilogue, alignment, and matching header and footer
+ * Checks include proper prologue and epilogue, alignment, free list consistency, and matching header and footer
  * Takes a line number (to give the output an identifying tag).
  */
 static bool check_heap(int line) {
     char *bp;
-    
+
     if ((GET_SIZE(HDRP(heap_start)) != DSIZE) || !GET_ALLOC(HDRP(heap_start))) {
         printf("(check_heap at line %d) Error: bad prologue header\n\n", line);
         return false;
@@ -393,7 +390,7 @@ static bool check_heap(int line) {
 }
 
 /*
- * check_block -- Checks a block for alignment and matching header and footer
+ * check_block -- Checks a block for alignment, correct pointers in EFL, proper coalescing, and matching header and footer
  */
 static bool check_block(int line, void *bp) {
 
@@ -417,7 +414,7 @@ static bool check_block(int line, void *bp) {
 }
 
 /*
- * print_heap -- Prints out the current state of the implicit free list
+ * print_heap -- Prints out the current state of the heap
  */
 static void print_heap() {
     char *bp;
@@ -430,12 +427,14 @@ static void print_heap() {
 
     print_block(bp);
 }
-
+ /*
+  * print_efl - prints out the currect state of the explicit free list;
+  */
 static void print_efl() {
 	void *bp = head_free;
 	while (bp != NULL){
 		print_block(bp);
-		bp = GET_NEXT_FREE(bp);		
+		bp = GET_NEXT_FREE(bp);
 	}
 }
 /*
